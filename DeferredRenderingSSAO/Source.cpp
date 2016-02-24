@@ -16,7 +16,7 @@
 
 // Function declarations
 void keyPress(GLFWwindow* window, int key, int scanCode, int action, int mode); // User input
-void mouseMove(GLFWwindow* window, double x, double y); 
+void mouseMove(GLFWwindow* window, double x, double y);
 glm::vec3 genKernel(GLuint i); // SSAO sample generator
 glm::vec3 genNoise(); // SSAO noise texture generator
 // End function declarations
@@ -24,18 +24,17 @@ glm::vec3 genNoise(); // SSAO noise texture generator
 // Global variables
 bool activeKeys[1024]; // Log key presses
 GLfloat delta = 0.0f; // Frame control
-GLfloat lastFrame = 0.0f; 
+GLfloat lastFrame = 0.0f;
 GLfloat lastX = 400.0f; // Mouse input
-GLfloat lastY = 300.0f; 
-GLfloat pitch = 0.0f; 
-GLfloat yaw = 0.0f; 
+GLfloat lastY = 300.0f;
+GLfloat pitch = 0.0f;
+GLfloat yaw = 0.0f;
 std::uniform_real_distribution<GLfloat> randomFloats(0.0, 1.0); // SSAO random functions
-std::default_random_engine generator; 
+std::default_random_engine generator;
 GLboolean ssaoEnable = true; // SSAO ON/OFF
 GLint ssaoLevel = 1;
 GLfloat ssaoRadius = 1.0f;
 // End global variables
-
 
 int main() {
 
@@ -55,7 +54,7 @@ int main() {
 		std::cout << "ERROR: Failed to create window" << std::endl;
 		glfwTerminate();
 		return -1;
-	} 
+	}
 	glfwMakeContextCurrent(window);
 	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED); // Bind mouse to window
 	glfwSetKeyCallback(window, keyPress); // Add input handling functions
@@ -152,9 +151,9 @@ int main() {
 	glUniform1i(glGetUniformLocation(lightShader.pID, "gColour"), 2);
 	glUniform1i(glGetUniformLocation(lightShader.pID, "ssao"), 3);
 	ssaoShader.Use();
-	glUniform1i(glGetUniformLocation(lightShader.pID, "gPosition"), 0);
-	glUniform1i(glGetUniformLocation(lightShader.pID, "gNormal"), 1);
-	glUniform1i(glGetUniformLocation(lightShader.pID, "noiseTex"), 2);
+	glUniform1i(glGetUniformLocation(ssaoShader.pID, "gPosition"), 0);
+	glUniform1i(glGetUniformLocation(ssaoShader.pID, "gNormal"), 1);
+	glUniform1i(glGetUniformLocation(ssaoShader.pID, "noiseTex"), 2);
 	// End shader texture uniforms
 
 	// gBuffer for deferred rendering
@@ -199,7 +198,7 @@ int main() {
 	glBindBuffer(GL_ARRAY_BUFFER, qVBO);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(verticesQuad), verticesQuad, GL_STATIC_DRAW); // Pass in quad geometry
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), (GLvoid*)0); // Set stepping for vertices
-	glEnableVertexAttribArray(0); 
+	glEnableVertexAttribArray(0);
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), (GLvoid*)(3 * sizeof(GLfloat))); // Set stepping for texture coordinates
 	glEnableVertexAttribArray(1);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -207,10 +206,10 @@ int main() {
 	// End quad buffer object
 
 	// Light buffer object
-	GLuint lVBO, lVAO; 
+	GLuint lVBO, lVAO;
 	glGenVertexArrays(1, &lVAO);
 	glGenBuffers(1, &lVBO);
-	glBindVertexArray(lVAO); 
+	glBindVertexArray(lVAO);
 	glBindBuffer(GL_ARRAY_BUFFER, lVBO);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(verticesFloor), verticesFloor, GL_STATIC_DRAW); // Pass in floor geometry
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat), (GLvoid*)0); // Be careful setting stride and size here (3 values) position
@@ -236,7 +235,7 @@ int main() {
 	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) std::cout << "ERROR: SSAO framebuffer not complete" << std::endl;
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	// End SSAO frame buffer object
-	
+
 	// Setup sample kernel
 	std::vector<glm::vec3> kernel;
 	for (GLuint i = 0; i < 64; ++i) kernel.push_back(genKernel(i));
@@ -254,12 +253,12 @@ int main() {
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT); // Set to wrap and repeat across whole screen
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	// End setup noise texture
-	
+
 
 	while (!glfwWindowShouldClose(window)) { // The "game loop"
 
 		// Handle user input
-		glfwPollEvents(); 
+		glfwPollEvents();
 		GLfloat curFrame = glfwGetTime();
 		delta = curFrame - lastFrame; // Frame smoothing
 		lastFrame = curFrame;
@@ -268,15 +267,15 @@ int main() {
 		// End user input
 
 		// Light update
-		lightPosition.x = sin(glfwGetTime())*20.0f; // Uncomment to enable rotation of light around scene
-		lightPosition.z = cos(glfwGetTime())*20.0f;
+		//lightPosition.x = sin(glfwGetTime())*20.0f; // Uncomment to enable rotation of light around scene
+		//lightPosition.z = cos(glfwGetTime())*20.0f;
 		// End light update
 
 		// View and projection matrix setup
 		glm::mat4 view, projection;
 		view = glm::lookAt(camera.getPos(), camera.getPos() + camera.getForward(), camera.getUp()); // the sum on the middle argument ensures the camera remains focussed on where we are looking
-		projection = glm::perspective(glm::radians(45.0f), GLfloat(WIDTH)/ GLfloat(HEIGHT), 0.1f, 100.0f);
-		
+		projection = glm::perspective(glm::radians(45.0f), GLfloat(WIDTH) / GLfloat(HEIGHT), 0.1f, 100.0f);
+
 		// End view and projection matrix setup
 
 		// Geometry pass	
@@ -365,10 +364,11 @@ int main() {
 	return 0;
 }
 
+
 void keyPress(GLFWwindow* window, int key, int scanCode, int action, int mode) {
 
 	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) glfwSetWindowShouldClose(window, GL_TRUE); // Escape exits programme
-	
+
 	if (action == GLFW_PRESS) // Capture key presses for movement
 		activeKeys[key] = true;
 	else if (action == GLFW_RELEASE)
@@ -409,7 +409,7 @@ glm::vec3 genKernel(GLuint i) {
 	sample *= randomFloats(generator);
 	GLfloat minScale = 0.1f; // Minimum and maximum scaling factors to apply to vectors
 	GLfloat maxScale = 1.0f;
-	GLfloat scale = minScale + (GLfloat(i) / (64.0f/ssaoLevel)) * (GLfloat(i) / (64.0f/ssaoLevel)) * (maxScale - minScale);
+	GLfloat scale = minScale + (GLfloat(i) / (64.0f / ssaoLevel)) * (GLfloat(i) / (64.0f / ssaoLevel)) * (maxScale - minScale);
 	sample *= scale;
 	return sample;
 }

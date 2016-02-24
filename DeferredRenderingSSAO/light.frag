@@ -22,7 +22,7 @@ void main()
 	
 	float ambient = 0.1f;
 
-	if (ssaoEnable) ambient = 0.3f * texture(ssao, texPos).r;
+	if (ssaoEnable) ambient = 0.1f * texture(ssao, texPos).r;
 	
 
 	float diffuse = max(dot(normal, lightDir), 0.0f);
