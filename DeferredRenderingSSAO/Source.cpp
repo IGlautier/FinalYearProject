@@ -32,6 +32,7 @@ GLfloat yaw = 0.0f;
 std::uniform_real_distribution<GLfloat> randomFloats(0.0, 1.0); // SSAO random functions
 std::default_random_engine generator;
 GLboolean ssaoEnable = true; // SSAO ON/OFF
+GLboolean blurEnable = false;
 GLint ssaoLevel = 1;
 GLfloat ssaoRadius = 1.0f;
 // End global variables
@@ -79,6 +80,7 @@ int main() {
 	Camera camera = Camera(); // Create camera
 	Shader gShader("geometry.vs", "geometry.frag"); // Shader loading
 	Shader lightShader("light.vs", "light.frag");
+	Shader blurShader("blur.vs", "blur.frag");
 	Shader ssaoShader("ssao.vs", "ssao.frag");
 	Model suit("nanosuit/nanosuit.obj"); // Model loading
 	Model bunny("bunny/bunny.obj");
@@ -154,6 +156,8 @@ int main() {
 	glUniform1i(glGetUniformLocation(ssaoShader.pID, "gPosition"), 0);
 	glUniform1i(glGetUniformLocation(ssaoShader.pID, "gNormal"), 1);
 	glUniform1i(glGetUniformLocation(ssaoShader.pID, "noiseTex"), 2);
+	blurShader.Use();
+	glUniform1i(glGetUniformLocation(blurShader.pID, "ssao"), 0);
 	// End shader texture uniforms
 
 	// gBuffer for deferred rendering
@@ -235,6 +239,20 @@ int main() {
 	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) std::cout << "ERROR: SSAO framebuffer not complete" << std::endl;
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	// End SSAO frame buffer object
+
+	// Blur frame buffer object
+	GLuint blurFBO, blurColour;
+	glGenFramebuffers(1, &blurFBO);
+	glBindFramebuffer(GL_FRAMEBUFFER, blurFBO);
+	glGenTextures(1, &blurColour);
+	glBindTexture(GL_TEXTURE_2D, blurColour);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, WIDTH, HEIGHT, 0, GL_RGB, GL_FLOAT, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, blurColour, 0);
+	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) std::cout << "ERROR: Blur framebuffer not complete" << std::endl;
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	// End Blur frame buffer object
 
 	// Setup sample kernel
 	std::vector<glm::vec3> kernel;
@@ -329,6 +347,19 @@ int main() {
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		// End ssao pass
 
+		// Blur pass
+		glBindFramebuffer(GL_FRAMEBUFFER, blurFBO);
+		glClear(GL_COLOR_BUFFER_BIT);
+		blurShader.Use();
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, ssaoColour);
+		glUniform1i(glGetUniformLocation(blurShader.pID, "blurEnable"), blurEnable);
+		glBindVertexArray(qVAO);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		glBindVertexArray(0);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		// End blur pass
+
 		// Lighting pass
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		lightShader.Use();
@@ -339,7 +370,7 @@ int main() {
 		glActiveTexture(GL_TEXTURE2);
 		glBindTexture(GL_TEXTURE_2D, gColour);
 		glActiveTexture(GL_TEXTURE3);
-		glBindTexture(GL_TEXTURE_2D, ssaoColour);
+		glBindTexture(GL_TEXTURE_2D, blurColour);
 		glUniform1i(glGetUniformLocation(lightShader.pID, "ssaoEnable"), ssaoEnable);
 		glUniform3f(glGetUniformLocation(lightShader.pID, "camPosition"), camera.getPos().x, camera.getPos().y, camera.getPos().z);
 		glUniform3f(glGetUniformLocation(lightShader.pID, "lightPosition"), lightPosition.x, lightPosition.y, lightPosition.z);
@@ -375,6 +406,8 @@ void keyPress(GLFWwindow* window, int key, int scanCode, int action, int mode) {
 		activeKeys[key] = false;
 
 	if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) ssaoEnable = !ssaoEnable; // For comparisons
+
+	if (key == GLFW_KEY_B && action == GLFW_PRESS) blurEnable = !blurEnable;
 
 	if (key == GLFW_KEY_1 && action == GLFW_PRESS) ssaoLevel = 1;
 
