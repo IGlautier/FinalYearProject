@@ -124,12 +124,7 @@ int main() {
 		-0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f, 0.0f, 0.0f,
 		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f, 1.0f
 	};
-	GLfloat verticesQuad[] = { // Quad that we render to for screen space techniques
-		-1.0f, 1.0f, 0.0f, 0.0f, 1.0f,
-		-1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
-		1.0f, 1.0f, 0.0f, 1.0f, 1.0f,
-		1.0f, -1.0f, 0.0f, 1.0f, 0.0f
-	};
+
 	glm::vec3 lightPosition = glm::vec3(10.0f, 10.0f, 10.0f); // Initial position of point light
 	glm::mat4 bunnyModel1, bunnyModel2, suitModel, armaModel, floorModel; // Sets up uniforms for location of models in world
 	bunnyModel1 = glm::translate(bunnyModel1, glm::vec3(0.0f, 0.15f, 0.0f));
@@ -138,7 +133,7 @@ int main() {
 	armaModel = glm::translate(armaModel, glm::vec3(5.0f, 0.5f, 5.0f));
 	floorModel = glm::scale(floorModel, glm::vec3(100.0f, 0.1f, 100.0f));
 	// End geometry input
-
+	shader.Use();
 	// Light buffer object
 	GLuint lVBO, lVAO; 
 	glGenVertexArrays(1, &lVAO);
@@ -168,8 +163,8 @@ int main() {
 		// End user input
 
 		// Light update
-		lightPosition.x = sin(glfwGetTime())*20.0f; // Uncomment to enable rotation of light around scene
-		lightPosition.z = cos(glfwGetTime())*20.0f;
+	//	lightPosition.x = sin(glfwGetTime())*20.0f; // Uncomment to enable rotation of light around scene
+	//	lightPosition.z = cos(glfwGetTime())*20.0f;
 		// End light update
 
 		// View and projection matrix setup

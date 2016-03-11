@@ -16,9 +16,12 @@ uniform mat4 projection;
 void main()
 {
 	vec4 viewSpace = view * model * vec4(position, 1.0f);
-	fragPos = viewSpace.xyz;
 	lFragPos = vec3(model* vec4(position, 1.0f));
+	fragPos = viewSpace.xyz;
     gl_Position = projection * viewSpace;
 	texPos = iTexture;	
+
 	normalFrag = transpose(inverse(mat3(view * model))) * normal;
+	
+	
 }

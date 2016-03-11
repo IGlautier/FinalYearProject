@@ -16,21 +16,29 @@
 
 // Function declarations
 void keyPress(GLFWwindow* window, int key, int scanCode, int action, int mode); // User input
-void mouseMove(GLFWwindow* window, double x, double y); 
-
+void mouseMove(GLFWwindow* window, double x, double y);
+glm::vec3 genKernel(GLuint i); // SSAO sample generator
+glm::vec3 genNoise(); // SSAO noise texture generator
 // End function declarations
 
 // Global variables
 bool activeKeys[1024]; // Log key presses
 GLfloat delta = 0.0f; // Frame control
-GLfloat lastFrame = 0.0f; 
+GLfloat lastFrame = 0.0f;
 GLfloat lastX = 400.0f; // Mouse input
-GLfloat lastY = 300.0f; 
-GLfloat pitch = 0.0f; 
-GLfloat yaw = 0.0f; 
+GLfloat lastY = 300.0f;
+GLfloat pitch = 0.0f;
+GLfloat yaw = 0.0f;
+std::uniform_real_distribution<GLfloat> randomFloats(0.0, 1.0); // SSAO random functions
+std::default_random_engine generator;
+GLboolean ssaoEnable = true; // SSAO ON/OFF
+GLboolean blurEnable = false;
+GLboolean pcfEnable = false;
+GLint ssaoLevel = 1;
+GLfloat ssaoRadius = 1.0f;
 
+glm::vec3 lightPosition = glm::vec3(10.0f, 10.0f, 10.0f); // Initial position of point light
 // End global variables
-
 
 int main() {
 
@@ -52,7 +60,7 @@ int main() {
 		std::cout << "ERROR: Failed to create window" << std::endl;
 		glfwTerminate();
 		return -1;
-	} 
+	}
 	glfwMakeContextCurrent(window);
 	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED); // Bind mouse to window
 	glfwSetKeyCallback(window, keyPress); // Add input handling functions
@@ -77,6 +85,8 @@ int main() {
 	Camera camera = Camera(); // Create camera
 	Shader gShader("geometry.vs", "geometry.frag"); // Shader loading
 	Shader lightShader("light.vs", "light.frag");
+	Shader blurShader("blur.vs", "blur.frag");
+	Shader ssaoShader("ssao.vs", "ssao.frag");
 	Shader shadowShader("shadow.vs", "shadow.frag", "shadow.gs");
 	Model suit("nanosuit/nanosuit.obj"); // Model loading
 	Model bunny("bunny/bunny.obj");
@@ -133,7 +143,7 @@ int main() {
 		1.0f, 1.0f, 0.0f, 1.0f, 1.0f,
 		1.0f, -1.0f, 0.0f, 1.0f, 0.0f
 	};
-	glm::vec3 lightPosition = glm::vec3(10.0f, 10.0f, 10.0f); // Initial position of point light
+//	glm::vec3 lightPosition = glm::vec3(10.0f, 10.0f, 10.0f); // Initial position of point light
 	glm::mat4 bunnyModel1, bunnyModel2, suitModel, armaModel, floorModel; // Sets up uniforms for location of models in world
 	bunnyModel1 = glm::translate(bunnyModel1, glm::vec3(0.0f, 0.15f, 0.0f));
 	bunnyModel2 = glm::translate(bunnyModel2, glm::vec3(5.0f, 0.15f, 0.0f));
@@ -143,12 +153,19 @@ int main() {
 	// End geometry input
 
 	// Shader texture uniforms
+	gShader.Use();
+	glUniform1i(glGetUniformLocation(gShader.pID, "shadowMap"), 0);
 	lightShader.Use();
 	glUniform1i(glGetUniformLocation(lightShader.pID, "gPosition"), 0);
 	glUniform1i(glGetUniformLocation(lightShader.pID, "gNormal"), 1);
 	glUniform1i(glGetUniformLocation(lightShader.pID, "gColour"), 2);
-	gShader.Use();
-	glUniform1i(glGetUniformLocation(gShader.pID, "shadowMap"), 0);
+	glUniform1i(glGetUniformLocation(lightShader.pID, "ssao"), 3);
+	ssaoShader.Use();
+	glUniform1i(glGetUniformLocation(ssaoShader.pID, "gPosition"), 0);
+	glUniform1i(glGetUniformLocation(ssaoShader.pID, "gNormal"), 1);
+	glUniform1i(glGetUniformLocation(ssaoShader.pID, "noiseTex"), 2);
+	blurShader.Use();
+	glUniform1i(glGetUniformLocation(blurShader.pID, "ssao"), 0);
 	// End shader texture uniforms
 
 	// Shadow mapping setup
@@ -170,7 +187,6 @@ int main() {
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	// End shadow mapping setup
 
-
 	// gBuffer for deferred rendering
 	GLuint gBuffer, gPosition, gNormal, gColour, gDepth;
 	glGenFramebuffers(1, &gBuffer);
@@ -185,7 +201,7 @@ int main() {
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, gPosition, 0);
 	glGenTextures(1, &gNormal); // Set up normal data storage
 	glBindTexture(GL_TEXTURE_2D, gNormal);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, WIDTH, HEIGHT, 0, GL_RGB, GL_FLOAT, NULL);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, WIDTH, HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, gNormal, 0);
@@ -213,7 +229,7 @@ int main() {
 	glBindBuffer(GL_ARRAY_BUFFER, qVBO);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(verticesQuad), verticesQuad, GL_STATIC_DRAW); // Pass in quad geometry
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), (GLvoid*)0); // Set stepping for vertices
-	glEnableVertexAttribArray(0); 
+	glEnableVertexAttribArray(0);
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), (GLvoid*)(3 * sizeof(GLfloat))); // Set stepping for texture coordinates
 	glEnableVertexAttribArray(1);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -221,10 +237,10 @@ int main() {
 	// End quad buffer object
 
 	// Light buffer object
-	GLuint lVBO, lVAO; 
+	GLuint lVBO, lVAO;
 	glGenVertexArrays(1, &lVAO);
 	glGenBuffers(1, &lVBO);
-	glBindVertexArray(lVAO); 
+	glBindVertexArray(lVAO);
 	glBindBuffer(GL_ARRAY_BUFFER, lVBO);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(verticesFloor), verticesFloor, GL_STATIC_DRAW); // Pass in floor geometry
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat), (GLvoid*)0); // Be careful setting stride and size here (3 values) position
@@ -237,10 +253,57 @@ int main() {
 	glBindVertexArray(0);
 	// End light buffer object
 
+	// SSAO frame buffer object
+	GLuint ssaoFBO, ssaoColour;
+	glGenFramebuffers(1, &ssaoFBO);
+	glBindFramebuffer(GL_FRAMEBUFFER, ssaoFBO);
+	glGenTextures(1, &ssaoColour);
+	glBindTexture(GL_TEXTURE_2D, ssaoColour);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, WIDTH, HEIGHT, 0, GL_RGB, GL_FLOAT, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ssaoColour, 0);
+	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) std::cout << "ERROR: SSAO framebuffer not complete" << std::endl;
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	// End SSAO frame buffer object
+
+	// Blur frame buffer object
+	GLuint blurFBO, blurColour;
+	glGenFramebuffers(1, &blurFBO);
+	glBindFramebuffer(GL_FRAMEBUFFER, blurFBO);
+	glGenTextures(1, &blurColour);
+	glBindTexture(GL_TEXTURE_2D, blurColour);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, WIDTH, HEIGHT, 0, GL_RGB, GL_FLOAT, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, blurColour, 0);
+	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) std::cout << "ERROR: Blur framebuffer not complete" << std::endl;
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	// End Blur frame buffer object
+
+	// Setup sample kernel
+	std::vector<glm::vec3> kernel;
+	for (GLuint i = 0; i < 64; ++i) kernel.push_back(genKernel(i));
+	// End setup sample kernel
+
+	// Setup noise texture
+	std::vector<glm::vec3> noise;
+	for (GLuint i = 0; i < 16; ++i) noise.push_back(genNoise());
+	GLuint noiseTex;
+	glGenTextures(1, &noiseTex);
+	glBindTexture(GL_TEXTURE_2D, noiseTex);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, 4, 4, 0, GL_RGB, GL_FLOAT, &noise[0]); // 4x4 texture that will be tiled over screen
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT); // Set to wrap and repeat across whole screen
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	// End setup noise texture
+
+
 	while (!glfwWindowShouldClose(window)) { // The "game loop"
 
 		// Handle user input
-		glfwPollEvents(); 
+		glfwPollEvents();
 		GLfloat curFrame = glfwGetTime();
 		delta = curFrame - lastFrame; // Frame smoothing
 		lastFrame = curFrame;
@@ -249,15 +312,14 @@ int main() {
 		// End user input
 
 		// Light update
-		//lightPosition.x = sin(glfwGetTime())*20.0f; // Uncomment to enable rotation of light around scene
-		//lightPosition.z = cos(glfwGetTime())*20.0f;
+	//	lightPosition.x = sin(glfwGetTime())*20.0f; // Uncomment to enable rotation of light around scene
+	//	lightPosition.z = cos(glfwGetTime())*20.0f;
 		// End light update
 
 		// View and projection matrix setup
 		glm::mat4 view, projection;
 		view = glm::lookAt(camera.getPos(), camera.getPos() + camera.getForward(), camera.getUp()); // the sum on the middle argument ensures the camera remains focussed on where we are looking
-		projection = glm::perspective(glm::radians(45.0f), GLfloat(WIDTH)/ GLfloat(HEIGHT), 0.1f, 100.0f);
-		
+		projection = glm::perspective(glm::radians(45.0f), GLfloat(WIDTH) / GLfloat(HEIGHT), 0.1f, 100.0f);
 		// End view and projection matrix setup
 
 		// Shadow pass
@@ -292,18 +354,16 @@ int main() {
 		glViewport(0, 0, WIDTH, HEIGHT); // Back to normal viewport
 		// End shadow pass
 
-
-
-
 		// Geometry pass	
 		glBindFramebuffer(GL_FRAMEBUFFER, gBuffer); // Bind gBuffer to fill with geometry data from the scene
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		gShader.Use();
 		glActiveTexture(GL_TEXTURE0); // Shadow map for shadow calculation
 		glBindTexture(GL_TEXTURE_CUBE_MAP, shadowMap);
-		glUniform3f(glGetUniformLocation(gShader.pID, "lightPosition"), lightPosition.x, lightPosition.y, lightPosition.z);
+		glUniform1i(glGetUniformLocation(gShader.pID, "pcfEnable"), pcfEnable);
 		glUniformMatrix4fv(glGetUniformLocation(gShader.pID, "view"), 1, GL_FALSE, glm::value_ptr(view));
 		glUniformMatrix4fv(glGetUniformLocation(gShader.pID, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+		glUniform3f(glGetUniformLocation(gShader.pID, "lightPosition"), lightPosition.x, lightPosition.y, lightPosition.z);
 		glBindVertexArray(lVAO);
 		glUniform3f(glGetUniformLocation(gShader.pID, "colour"), 0.5f, 0.2f, 0.2f);
 		glUniform1f(glGetUniformLocation(gShader.pID, "specular"), 0.1f);
@@ -323,13 +383,45 @@ int main() {
 		glUniformMatrix4fv(glGetUniformLocation(gShader.pID, "model"), 1, GL_FALSE, glm::value_ptr(armaModel)); // Render armadillo
 		armadillo.Draw(gShader);
 		glUniform3f(glGetUniformLocation(gShader.pID, "colour"), 0.1f, 0.9f, 0.1f);
+		//glUniform3f(glGetUniformLocation(gShader.pID, "colour"), 1.0f, 1.0f, 1.0f);
 		glUniform1f(glGetUniformLocation(gShader.pID, "specular"), 0.2f);
 		glUniformMatrix4fv(glGetUniformLocation(gShader.pID, "model"), 1, GL_FALSE, glm::value_ptr(suitModel)); // Render suit
 		suit.Draw(gShader);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		// End geometry pass
 
-		
+		// SSAO pass
+		glBindFramebuffer(GL_FRAMEBUFFER, ssaoFBO);
+		glClear(GL_COLOR_BUFFER_BIT);
+		ssaoShader.Use();
+		glActiveTexture(GL_TEXTURE0); // Bind textures from gBuffer to retrieve required information
+		glBindTexture(GL_TEXTURE_2D, gPosition);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, gNormal);
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, noiseTex);
+		for (GLuint i = 0; i < 64; ++i) glUniform3fv(glGetUniformLocation(ssaoShader.pID, ("kernel[" + std::to_string(i) + "]").c_str()), 1, &kernel[i][0]);
+		glUniformMatrix4fv(glGetUniformLocation(ssaoShader.pID, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+		glUniform1i(glGetUniformLocation(ssaoShader.pID, "ssaoLevel"), ssaoLevel);
+		glUniform1f(glGetUniformLocation(ssaoShader.pID, "ssaoRadius"), ssaoRadius);
+		glBindVertexArray(qVAO);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		glBindVertexArray(0);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		// End ssao pass
+
+		// Blur pass
+		glBindFramebuffer(GL_FRAMEBUFFER, blurFBO);
+		glClear(GL_COLOR_BUFFER_BIT);
+		blurShader.Use();
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, ssaoColour);
+		glUniform1i(glGetUniformLocation(blurShader.pID, "blurEnable"), blurEnable);
+		glBindVertexArray(qVAO);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		glBindVertexArray(0);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		// End blur pass
 
 		// Lighting pass
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -340,6 +432,11 @@ int main() {
 		glBindTexture(GL_TEXTURE_2D, gNormal);
 		glActiveTexture(GL_TEXTURE2);
 		glBindTexture(GL_TEXTURE_2D, gColour);
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_2D, blurColour);
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, shadowMap);
+		glUniform1i(glGetUniformLocation(lightShader.pID, "ssaoEnable"), ssaoEnable);
 		glUniform3f(glGetUniformLocation(lightShader.pID, "camPosition"), camera.getPos().x, camera.getPos().y, camera.getPos().z);
 		glUniform3f(glGetUniformLocation(lightShader.pID, "lightPosition"), lightPosition.x, lightPosition.y, lightPosition.z);
 		glBindVertexArray(qVAO);
@@ -356,20 +453,50 @@ int main() {
 	glDeleteBuffers(1, &lVBO);
 	glDeleteVertexArrays(1, &qVAO);
 	glDeleteBuffers(1, &qVBO);
+	glDeleteFramebuffers(1, &ssaoFBO);
 	glfwTerminate();
 	// End clean up
 
 	return 0;
 }
 
+
 void keyPress(GLFWwindow* window, int key, int scanCode, int action, int mode) {
 
 	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) glfwSetWindowShouldClose(window, GL_TRUE); // Escape exits programme
-	
+
 	if (action == GLFW_PRESS) // Capture key presses for movement
 		activeKeys[key] = true;
 	else if (action == GLFW_RELEASE)
 		activeKeys[key] = false;
+
+	if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) ssaoEnable = !ssaoEnable; // For comparisons
+
+	if (key == GLFW_KEY_B && action == GLFW_PRESS) blurEnable = !blurEnable;
+
+	if (key == GLFW_KEY_P && action == GLFW_PRESS) pcfEnable= !pcfEnable;
+
+	if (key == GLFW_KEY_1 && action == GLFW_PRESS) ssaoLevel = 1;
+
+	if (key == GLFW_KEY_2 && action == GLFW_PRESS) ssaoLevel = 2;
+
+	if (key == GLFW_KEY_3 && action == GLFW_PRESS) ssaoLevel = 4;
+
+	if (key == GLFW_KEY_4 && action == GLFW_PRESS) ssaoRadius = 1.0f;
+
+	if (key == GLFW_KEY_5 && action == GLFW_PRESS) ssaoRadius = 5.0f;
+
+	if (key == GLFW_KEY_6 && action == GLFW_PRESS) ssaoRadius = 10.0f;
+
+	if (key == GLFW_KEY_UP && action == GLFW_PRESS) lightPosition.x += 1.0f;
+
+	if (key == GLFW_KEY_DOWN && action == GLFW_PRESS) lightPosition.x -= 1.0f;
+
+	if (key == GLFW_KEY_LEFT && action == GLFW_PRESS) lightPosition.y += 1.0f;
+
+	if (key == GLFW_KEY_RIGHT && action == GLFW_PRESS) lightPosition.y -= 1.0f;
+
+	if (lightPosition.y < 1.0f) lightPosition.y = 1.0f;
 }
 
 void mouseMove(GLFWwindow* window, double x, double y) {
@@ -383,4 +510,20 @@ void mouseMove(GLFWwindow* window, double x, double y) {
 	pitch -= yChange;
 	if (pitch > 89.0f) pitch = 89.0f; // Bound camera look angle
 	if (pitch < -89.0f) pitch = -89.0f;
+}
+
+glm::vec3 genKernel(GLuint i) {
+	/* Generates vectors in normalised device coordinates (screen space). When used iteratively will bias towards vectors of shorter length */
+	glm::vec3 sample(randomFloats(generator) * 2.0f - 1.0f, randomFloats(generator) * 2.0f - 1.0f, randomFloats(generator));
+	sample = glm::normalize(sample);
+	sample *= randomFloats(generator);
+	GLfloat minScale = 0.1f; // Minimum and maximum scaling factors to apply to vectors
+	GLfloat maxScale = 1.0f;
+	GLfloat scale = minScale + (GLfloat(i) / (64.0f / ssaoLevel)) * (GLfloat(i) / (64.0f / ssaoLevel)) * (maxScale - minScale);
+	sample *= scale;
+	return sample;
+}
+
+glm::vec3 genNoise() {
+	return glm::vec3(randomFloats(generator) * 2.0f - 1.0f, randomFloats(generator) * 2.0f - 1.0f, 0.0f);
 }

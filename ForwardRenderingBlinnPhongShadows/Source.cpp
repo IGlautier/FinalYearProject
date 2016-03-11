@@ -47,7 +47,7 @@ int main() {
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	glfwWindowHint(GLFW_RESIZABLE, GL_FALSE); // Lock window size
-	GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "MEng Project SSAO", nullptr, nullptr); // Create window
+	GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "MEng Project Forward Rendering", nullptr, nullptr); // Create window
 	if (window == nullptr) { // Error Check
 		std::cout << "ERROR: Failed to create window" << std::endl;
 		glfwTerminate();
@@ -75,9 +75,9 @@ int main() {
 
 	// Loading and object creation
 	Camera camera = Camera(); // Create camera
-	Shader gShader("geometry.vs", "geometry.frag"); // Shader loading
-	Shader lightShader("light.vs", "light.frag");
+	Shader shader("vertex.vs", "fragment.frag"); // Shader loading
 	Shader shadowShader("shadow.vs", "shadow.frag", "shadow.gs");
+
 	Model suit("nanosuit/nanosuit.obj"); // Model loading
 	Model bunny("bunny/bunny.obj");
 	Model armadillo("armadillo/armadillo.obj");
@@ -127,12 +127,7 @@ int main() {
 		-0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f, 0.0f, 0.0f,
 		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f, 1.0f
 	};
-	GLfloat verticesQuad[] = { // Quad that we render to for screen space techniques
-		-1.0f, 1.0f, 0.0f, 0.0f, 1.0f,
-		-1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
-		1.0f, 1.0f, 0.0f, 1.0f, 1.0f,
-		1.0f, -1.0f, 0.0f, 1.0f, 0.0f
-	};
+
 	glm::vec3 lightPosition = glm::vec3(10.0f, 10.0f, 10.0f); // Initial position of point light
 	glm::mat4 bunnyModel1, bunnyModel2, suitModel, armaModel, floorModel; // Sets up uniforms for location of models in world
 	bunnyModel1 = glm::translate(bunnyModel1, glm::vec3(0.0f, 0.15f, 0.0f));
@@ -142,14 +137,12 @@ int main() {
 	floorModel = glm::scale(floorModel, glm::vec3(100.0f, 0.1f, 100.0f));
 	// End geometry input
 
-	// Shader texture uniforms
-	lightShader.Use();
-	glUniform1i(glGetUniformLocation(lightShader.pID, "gPosition"), 0);
-	glUniform1i(glGetUniformLocation(lightShader.pID, "gNormal"), 1);
-	glUniform1i(glGetUniformLocation(lightShader.pID, "gColour"), 2);
-	gShader.Use();
-	glUniform1i(glGetUniformLocation(gShader.pID, "shadowMap"), 0);
-	// End shader texture uniforms
+	//Texture passing
+	shader.Use();
+	glUniform1i(glGetUniformLocation(shader.pID, "shadowMap"), 0);
+	//texture passing
+
+
 
 	// Shadow mapping setup
 	GLuint shadowMap, shadowBuffer;
@@ -171,54 +164,8 @@ int main() {
 	// End shadow mapping setup
 
 
-	// gBuffer for deferred rendering
-	GLuint gBuffer, gPosition, gNormal, gColour, gDepth;
-	glGenFramebuffers(1, &gBuffer);
-	glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
-	glGenTextures(1, &gPosition); // Set up position data storage
-	glBindTexture(GL_TEXTURE_2D, gPosition);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, WIDTH, HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, gPosition, 0);
-	glGenTextures(1, &gNormal); // Set up normal data storage
-	glBindTexture(GL_TEXTURE_2D, gNormal);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, WIDTH, HEIGHT, 0, GL_RGB, GL_FLOAT, NULL);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, gNormal, 0);
-	glGenTextures(1, &gColour); // Set up colour data storage
-	glBindTexture(GL_TEXTURE_2D, gColour);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, WIDTH, HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, gColour, 0);
-	GLuint attach[3] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
-	glDrawBuffers(3, attach);
-	glGenRenderbuffers(1, &gDepth); // Set up depth
-	glBindRenderbuffer(GL_RENDERBUFFER, gDepth);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, WIDTH, HEIGHT);
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, gDepth);
-	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) std::cout << "ERROR: Geometry framebuffer not complete" << std::endl; // Error check
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	// End GBuffer
 
-	// Quad buffer object
-	GLuint qVBO, qVAO;
-	glGenVertexArrays(1, &qVAO);
-	glGenBuffers(1, &qVBO);
-	glBindVertexArray(qVAO);
-	glBindBuffer(GL_ARRAY_BUFFER, qVBO);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(verticesQuad), verticesQuad, GL_STATIC_DRAW); // Pass in quad geometry
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), (GLvoid*)0); // Set stepping for vertices
-	glEnableVertexAttribArray(0); 
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), (GLvoid*)(3 * sizeof(GLfloat))); // Set stepping for texture coordinates
-	glEnableVertexAttribArray(1);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
-	glBindVertexArray(0);
-	// End quad buffer object
+
 
 	// Light buffer object
 	GLuint lVBO, lVAO; 
@@ -260,6 +207,7 @@ int main() {
 		
 		// End view and projection matrix setup
 
+
 		// Shadow pass
 		glm::mat4 shadowProjection = glm::perspective(glm::radians(90.0f), 1.0f, 1.0f, 100.0f);
 		std::vector<glm::mat4> shadowViews;
@@ -294,58 +242,37 @@ int main() {
 
 
 
-
-		// Geometry pass	
-		glBindFramebuffer(GL_FRAMEBUFFER, gBuffer); // Bind gBuffer to fill with geometry data from the scene
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		gShader.Use();
+		shader.Use();
 		glActiveTexture(GL_TEXTURE0); // Shadow map for shadow calculation
 		glBindTexture(GL_TEXTURE_CUBE_MAP, shadowMap);
-		glUniform3f(glGetUniformLocation(gShader.pID, "lightPosition"), lightPosition.x, lightPosition.y, lightPosition.z);
-		glUniformMatrix4fv(glGetUniformLocation(gShader.pID, "view"), 1, GL_FALSE, glm::value_ptr(view));
-		glUniformMatrix4fv(glGetUniformLocation(gShader.pID, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+		glUniformMatrix4fv(glGetUniformLocation(shader.pID, "view"), 1, GL_FALSE, glm::value_ptr(view));
+		glUniformMatrix4fv(glGetUniformLocation(shader.pID, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+		glUniform3f(glGetUniformLocation(shader.pID, "camPosition"), camera.getPos().x, camera.getPos().y, camera.getPos().z);
+		glUniform3f(glGetUniformLocation(shader.pID, "lightPosition"), lightPosition.x, lightPosition.y, lightPosition.z);
 		glBindVertexArray(lVAO);
-		glUniform3f(glGetUniformLocation(gShader.pID, "colour"), 0.5f, 0.2f, 0.2f);
-		glUniform1f(glGetUniformLocation(gShader.pID, "specular"), 0.1f);
-		glUniformMatrix4fv(glGetUniformLocation(gShader.pID, "model"), 1, GL_FALSE, glm::value_ptr(floorModel)); // Render floor
+		glUniform3f(glGetUniformLocation(shader.pID, "iColour"), 0.5f, 0.2f, 0.2f);
+		glUniform1f(glGetUniformLocation(shader.pID, "specular"), 0.1f);
+		glUniformMatrix4fv(glGetUniformLocation(shader.pID, "model"), 1, GL_FALSE, glm::value_ptr(floorModel)); // Render floor
 		glDrawArrays(GL_TRIANGLES, 0, 36);
 		glBindVertexArray(0);
-		glUniform3f(glGetUniformLocation(gShader.pID, "colour"), 0.1f, 0.5f, 0.5f);
-		glUniform1f(glGetUniformLocation(gShader.pID, "specular"), 0.5f);
-		glUniformMatrix4fv(glGetUniformLocation(gShader.pID, "model"), 1, GL_FALSE, glm::value_ptr(bunnyModel1)); // Render rabbit 1
-		bunny.Draw(gShader);
-		glUniform3f(glGetUniformLocation(gShader.pID, "colour"), 0.1f, 0.5f, 0.5f);
-		glUniform1f(glGetUniformLocation(gShader.pID, "specular"), 0.7f);
-		glUniformMatrix4fv(glGetUniformLocation(gShader.pID, "model"), 1, GL_FALSE, glm::value_ptr(bunnyModel2)); // Render rabbit 2
-		bunny.Draw(gShader);
-		glUniform3f(glGetUniformLocation(gShader.pID, "colour"), 0.9f, 0.1f, 0.1f);
-		glUniform1f(glGetUniformLocation(gShader.pID, "specular"), 0.3f);
-		glUniformMatrix4fv(glGetUniformLocation(gShader.pID, "model"), 1, GL_FALSE, glm::value_ptr(armaModel)); // Render armadillo
-		armadillo.Draw(gShader);
-		glUniform3f(glGetUniformLocation(gShader.pID, "colour"), 0.1f, 0.9f, 0.1f);
-		glUniform1f(glGetUniformLocation(gShader.pID, "specular"), 0.2f);
-		glUniformMatrix4fv(glGetUniformLocation(gShader.pID, "model"), 1, GL_FALSE, glm::value_ptr(suitModel)); // Render suit
-		suit.Draw(gShader);
+		glUniform3f(glGetUniformLocation(shader.pID, "iColour"), 0.1f, 0.5f, 0.5f);
+		glUniform1f(glGetUniformLocation(shader.pID, "specular"), 0.5f);
+		glUniformMatrix4fv(glGetUniformLocation(shader.pID, "model"), 1, GL_FALSE, glm::value_ptr(bunnyModel1)); // Render rabbit 1
+		bunny.Draw(shader);
+		glUniform3f(glGetUniformLocation(shader.pID, "iColour"), 0.1f, 0.5f, 0.5f);
+		glUniform1f(glGetUniformLocation(shader.pID, "specular"), 0.7f);
+		glUniformMatrix4fv(glGetUniformLocation(shader.pID, "model"), 1, GL_FALSE, glm::value_ptr(bunnyModel2)); // Render rabbit 2
+		bunny.Draw(shader);
+		glUniform3f(glGetUniformLocation(shader.pID, "iColour"), 0.9f, 0.1f, 0.1f);
+		glUniform1f(glGetUniformLocation(shader.pID, "specular"), 0.3f);
+		glUniformMatrix4fv(glGetUniformLocation(shader.pID, "model"), 1, GL_FALSE, glm::value_ptr(armaModel)); // Render armadillo
+		armadillo.Draw(shader);
+		glUniform3f(glGetUniformLocation(shader.pID, "iColour"), 0.1f, 0.9f, 0.1f);
+		glUniform1f(glGetUniformLocation(shader.pID, "specular"), 0.2f);
+		glUniformMatrix4fv(glGetUniformLocation(shader.pID, "model"), 1, GL_FALSE, glm::value_ptr(suitModel)); // Render suit
+		suit.Draw(shader);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		// End geometry pass
-
-		
-
-		// Lighting pass
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		lightShader.Use();
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, gPosition);
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, gNormal);
-		glActiveTexture(GL_TEXTURE2);
-		glBindTexture(GL_TEXTURE_2D, gColour);
-		glUniform3f(glGetUniformLocation(lightShader.pID, "camPosition"), camera.getPos().x, camera.getPos().y, camera.getPos().z);
-		glUniform3f(glGetUniformLocation(lightShader.pID, "lightPosition"), lightPosition.x, lightPosition.y, lightPosition.z);
-		glBindVertexArray(qVAO);
-		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-		glBindVertexArray(0);
-		// End lighting pass
 
 		glfwSwapBuffers(window); // Push new data to screen (this uses double buffering to avoid flickering)
 
@@ -354,8 +281,6 @@ int main() {
 	// Clean up
 	glDeleteVertexArrays(1, &lVAO);
 	glDeleteBuffers(1, &lVBO);
-	glDeleteVertexArrays(1, &qVAO);
-	glDeleteBuffers(1, &qVBO);
 	glfwTerminate();
 	// End clean up
 
